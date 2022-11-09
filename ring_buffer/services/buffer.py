@@ -14,6 +14,10 @@ class RingEmptyError(Exception):
     """Ring is Empty"""
 
 
+class NullEventError(Exception):
+    """Event in ring is Null/None"""
+
+
 class RingBuffer:
     """A circular queue, faster than normal queue
     """
@@ -24,6 +28,8 @@ class RingBuffer:
         Args:
             size (int, optional): size of the queue. Defaults to 2**10.
         """
+        if size <= 0:
+            raise ValueError('Size cannot be lesser than 0')
         self._size: int = size
         self._ring: t.List[t.Optional[Event]] = [None] * size
         self._producer_counter: int = 0
@@ -52,7 +58,7 @@ class RingBuffer:
         self._consumer_counter = (self._consumer_counter + 1) % self._size
         return _index
 
-    def _duplicate_index_counter(self) -> bool:
+    def _is_duplicate_index_counter(self) -> bool:
         """Check if the next index of producer is the first consumer index
 
         Returns:
@@ -90,7 +96,7 @@ class RingBuffer:
         Returns:
             bool: True if the ring is full
         """
-        if self._duplicate_index_counter():
+        if self._is_duplicate_index_counter():
             return self._ring[self._consumer_counter] is not None
         return False
 
@@ -100,7 +106,7 @@ class RingBuffer:
         Returns:
             bool: True if empty
         """
-        if self._duplicate_index_counter():
+        if self._is_duplicate_index_counter():
             return self._ring[self._consumer_counter] is None
         return False
 
@@ -116,6 +122,8 @@ class RingBuffer:
         Raises:
             RingFullError: Ring is full
         """
+        if not isinstance(event, Event):
+            raise ValueError('Cannot put anything other than Event in queue')
         with self._lock:
             if self.is_full():
                 raise RingFullError('ring is full')
@@ -137,5 +145,8 @@ class RingBuffer:
                 raise RingEmptyError('Ring is empty')
             first_event_index = self._get_first_event_index()
             first_event = self._ring[first_event_index]
+            if not isinstance(first_event, Event):
+                raise NullEventError(f"Event get from ring buffer is not \
+                    Event, receive {first_event}")
             self._ring[first_event_index] = None
             return first_event
