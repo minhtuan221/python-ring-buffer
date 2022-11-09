@@ -36,8 +36,11 @@ class RingBuffer:
         Returns:
             int: the index of new event in the ring
         """
-        self._producer_counter = self._producer_counter + 1 % self._size
-        return self._producer_counter
+        _index = self._producer_counter
+        # increase counter by 1
+        self._producer_counter = (self._producer_counter + 1) % self._size
+        # return current position
+        return _index
 
     def _get_first_event_index(self) -> int:
         """Get the first event index in the ring
@@ -45,8 +48,41 @@ class RingBuffer:
         Returns:
             int: the index of the first event
         """
-        self._consumer_counter = self._consumer_counter + 1 % self._size
-        return self._consumer_counter
+        _index = self._consumer_counter
+        self._consumer_counter = (self._consumer_counter + 1) % self._size
+        return _index
+
+    def _duplicate_index_counter(self) -> bool:
+        """Check if the next index of producer is the first consumer index
+
+        Returns:
+            bool: True if they are in the same position
+        """
+        return self._consumer_counter == self._producer_counter
+
+    def qsize(self) -> int:
+        """Return size of the ring buffer
+
+        Returns:
+            int: the size of ring
+        """
+        with self._lock:
+            if self._consumer_counter <= self._producer_counter:
+                return self._producer_counter - self._consumer_counter
+            return self._size - self._consumer_counter + self._producer_counter
+
+    def count_none_pointer(self) -> int:
+        """return the total number of None in ring
+
+        Returns:
+            int: The total number of None type in ring
+        """
+        with self._lock:
+            none_type_counter = 0
+            for i in self._ring:
+                if i is None:
+                    none_type_counter += 1
+            return none_type_counter
 
     def is_full(self) -> bool:
         """Check if the ring is full or not
@@ -54,8 +90,9 @@ class RingBuffer:
         Returns:
             bool: True if the ring is full
         """
-        return (self._producer_counter + 1) % self._size \
-               == self._consumer_counter
+        if self._duplicate_index_counter():
+            return self._ring[self._consumer_counter] is not None
+        return False
 
     def is_empty(self) -> bool:
         """Check if the ring is empty or not
@@ -63,7 +100,9 @@ class RingBuffer:
         Returns:
             bool: True if empty
         """
-        return self._consumer_counter == self._producer_counter
+        if self._duplicate_index_counter():
+            return self._ring[self._consumer_counter] is None
+        return False
 
     def put(self, event: Event) -> int:
         """put a new event in ring buffer
@@ -98,5 +137,5 @@ class RingBuffer:
                 raise RingEmptyError('Ring is empty')
             first_event_index = self._get_first_event_index()
             first_event = self._ring[first_event_index]
-            self._ring[self._get_first_event_index()] = None
+            self._ring[first_event_index] = None
             return first_event
