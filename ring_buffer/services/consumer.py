@@ -67,7 +67,7 @@ class Consumer:
                     self._callback(self._ring_buffer.get())
                 except buffer.RingEmptyError:
                     break
-            time.sleep(0.1)
+            time.sleep(0.01)
 
     def start(self):
         """Start consume from ring buffer
