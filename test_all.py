@@ -9,8 +9,8 @@ def main():
     """
     # test_ring_is_full()
     # test_get_set()
-    # test_dynamic_dict_obj()
-    test_share_list_object_1()
+    test_dynamic_dict_obj()
+    # test_share_list_object_1()
 
 
 if __name__ == '__main__':

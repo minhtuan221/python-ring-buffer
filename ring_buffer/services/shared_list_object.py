@@ -109,7 +109,11 @@ class SharedDictObject:
         self._create = create
         # the first node of the stack
         if create:
-            self._first_node = self.create_node(b'', b'', node_name=self.name)
+            self._first_node = self._create_node(b'', b'', node_name=self.name)
+        else:
+            self._first_node = shared_memory.SharedMemory(self.name)
+        self._value_cache = {}
+        self._stack_cache = {}
 
     def _padding_name(self, n: bytes):
         cleaned_n = n.strip()
@@ -118,7 +122,7 @@ class SharedDictObject:
     def _couple_padding_name(self, n1: bytes, n2: bytes):
         return self._padding_name(n1) + b'|' + self._padding_name(n2)
 
-    def create_node(self, key: bytes, next_node_name: bytes, node_name: str = '', size: int = 0):
+    def _create_node(self, key: bytes, next_node_name: bytes, node_name: str = '', size: int = 0):
         if not node_name:
             node_name = None
         # _key = self._padding_name(key)
@@ -137,32 +141,20 @@ class SharedDictObject:
         if not s:
             s = self._first_node
         node: t.List[bytes] = bytes(s.buf).split(b'|')
-        return node[1].strip()
+        return (node[0].strip(), node[1].strip())
 
-    def append_node(self, key: str):
+    def _append_node(self, key: str):
         # get the last node name (first in, last out)
         node: t.List[bytes] = bytes(self._first_node.buf).split(b'|')
         print('last node name', node[1])
         if not node[1]:
             print('this is the first element of dict')
         # create new node in the stack
-        new_stack_node = self.create_node(key.encode(), node[1])
+        new_stack_node = self._create_node(key.encode(), node[1])
         self._first_node.buf[:] = self._couple_padding_name(b'', new_stack_node.name.encode())
         print('_first_node', self._first_node.name, bytes(self._first_node.buf))
         print('_new_appended_node', new_stack_node.name, bytes(new_stack_node.buf))
-
-        # self._first_node.buf[:] =
-
-    def get_node(self, node_name: str):
-        """Get existing share memory
-
-        Args:
-            node_name: The of the pointer
-
-        Returns:
-
-        """
-        return shared_memory.SharedMemory(node_name, create=False)
+        return new_stack_node
 
     def set(self, key: str, value: object):
         # create new share memory with key
@@ -172,42 +164,54 @@ class SharedDictObject:
         new_share_memory.buf[:] = value_in_bytes
         # add new share to the stack
         print('new shared value', new_share_memory.name, bytes(new_share_memory.buf))
-        self.append_node(key)
-        new_share_memory.close()
+        n = self._append_node(key)
+        # add all new shared memory to cache. Access the memory else where in this
+        # process will cause error
+        self._value_cache[key] = new_share_memory
+        self._stack_cache[n.name] = n
 
     def get(self, key: str):
-        shared_memory_in_byte = bytes(shared_memory.SharedMemory(name=key).buf)
+        if key not in self._value_cache:
+            self._value_cache[key] = shared_memory.SharedMemory(name=key)
+        shared_memory_in_byte = bytes(self._value_cache[key].buf)
         return pickle.loads(shared_memory_in_byte)
 
+    def _get_node(self, key: str):
+        """Get existing shared memory of key
+
+        Args:
+            key: The pointer of the key
+
+        Returns:
+
+        """
+        if key in self._stack_cache:
+            return self._stack_cache[key]
+        return shared_memory.SharedMemory(name=key)
+
     def keys(self):
+        key, next_node_name = self._get_next_node_name()
         res = []
-        next_node_name = self._get_next_node_name()
+        if key:
+            res.append(key.decode())
 
         while next_node_name:
-            res.append(next_node_name)
             print('next_node_name', next_node_name)
-            s = self.get(next_node_name.decode())
-            next_node_name = self._get_next_node_name(s)
+            s = self._get_node(next_node_name.decode())
+            key, next_node_name = self._get_next_node_name(s)
+            res.append(key.decode())
             if not next_node_name:
                 break
         return res
 
+    def values(self):
+        res = []
+        for key in self.keys():
+            res.append(self.get(key))
+        return res
+
     def shutdown(self):
         self._first_node.unlink()
-        # self._shared_list_element.shm.unlink()
-
-    def _size_as_byte(self):
-        return f"{'0' * 10}{str(self._size)}"[-10:]
-
-    def _update_list_pointer(self):
-        self._first_node.buf[:] = \
-            bytearray(pickle.dumps(f"{self._shared_list_element.shm.name}|{self._size_as_byte()}"))
-
-    def _create_shared_list_element(self):
-        if self._create:
-            self._shared_list_element = shared_memory.ShareableList()
-        self._shared_list_element = shared_memory.ShareableList([])
-        self._update_list_pointer()
 
 
 def test_dynamic_dict_obj():
@@ -223,9 +227,13 @@ def test_dynamic_dict_obj():
     buf = shm._first_node.buf
     print('first_node_name',shm._first_node.name, bytes(buf))
     event1 = _T('bla', {'name': 'foo'})
-    shm.set('test1234', event1)
-    shm.get('test1234')
+    shm.set('test1', event1)
+    shm.set('test2', 'afasd')
+    shm.set('test3', 13344)
+    shm.set('test4', bool())
     print(shm.keys())
+    print(shm.values())
+    time.sleep(3)
     shm.shutdown()
 
 
