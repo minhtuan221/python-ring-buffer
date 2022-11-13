@@ -225,7 +225,7 @@ def test_dynamic_dict_obj():
 
     shm = SharedDictObject('test', create=True)
     buf = shm._first_node.buf
-    print('first_node_name',shm._first_node.name, bytes(buf))
+    print('first_node_name', shm._first_node.name, bytes(buf))
     event1 = _T('bla', {'name': 'foo'})
     shm.set('test1', event1)
     shm.set('test2', 'afasd')
