@@ -1,9 +1,8 @@
-import typing as t
 import pickle
+import typing as t
 from multiprocessing import shared_memory
 
-
-_MAX_NAME_LENGTH = shared_memory._SHM_SAFE_NAME_LENGTH
+_MAX_NAME_LENGTH = 32 # shared_memory._SHM_SAFE_NAME_LENGTH
 _BYTES_DELIMITER = b'|'
 
 
@@ -19,7 +18,7 @@ class Node:
     def __init__(self,
                  name: t.Optional[str] = None,
                  create: bool = False,
-                 data_size: int = 14):
+                 data_size: int = 32):
         self.size = _MAX_NAME_LENGTH * 2 + data_size
         self._data_size = data_size
         self.create = create
@@ -47,22 +46,22 @@ class Node:
         self.pointer.buf[:_MAX_NAME_LENGTH] = _padding_name(name)
 
     def previous_node_name(self) -> str:
-        p = bytes(self.pointer.buf)[:14]
+        p = bytes(self.pointer.buf)[:32]
         return p.decode().strip()
 
     def value(self) -> str:
-        p = bytes(self.pointer.buf)[14:-14]
+        p = bytes(self.pointer.buf)[32:-32]
         return p.decode().strip()
 
     def data(self) -> bytes:
-        p = bytes(self.pointer.buf)[14:-14]
+        p = bytes(self.pointer.buf)[32:-32]
         return p
 
     def set_next_node_name(self, name: bytes):
         self.pointer.buf[-_MAX_NAME_LENGTH:] = _padding_name(name)
 
     def next_node_name(self) -> str:
-        p = bytes(self.pointer.buf)[-14:]
+        p = bytes(self.pointer.buf)[-32:]
         return p.decode().strip()
 
     def to_dict(self) -> dict:
@@ -73,7 +72,7 @@ class Node:
         return _d
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({','.join([f'{k}={v!r}' for k,v in self.to_dict().items()])})"
+        return f"{self.__class__.__name__}({','.join([f'{k}={v!r}' for k, v in self.to_dict().items()])})"
 
 
 class SharedLinkedList:
@@ -89,11 +88,11 @@ class SharedLinkedList:
         self._node_cache_map: t.Dict[str, Node] = {}
 
     def get_last_node(self) -> t.Optional[Node]:
-        n = bytes(self.pointer.buf[-14:]).decode()
+        n = bytes(self.pointer.buf[-32:]).decode()
         return self.get_node(n.strip())
 
     def get_first_node(self) -> t.Optional[Node]:
-        n = bytes(self.pointer.buf[:14]).decode()
+        n = bytes(self.pointer.buf[:32]).decode()
         return self.get_node(n.strip())
 
     def is_empty(self) -> bool:
@@ -114,7 +113,7 @@ class SharedLinkedList:
                        _padding_name(b''))
             # the first element name is the same as last
             # assign name to first element
-            self.pointer.buf[:14] = _padding_name(node.name().encode())
+            self.pointer.buf[:32] = _padding_name(node.name().encode())
         else:
             last_node = self.get_last_node()
             node.build(last_node.name().encode(),
@@ -122,13 +121,15 @@ class SharedLinkedList:
                        _padding_name(b''))
             last_node.set_next_node_name(node.name().encode())
         # assign name to last element
-        self.pointer.buf[-14:] = _padding_name(node.name().encode())
+        self.pointer.buf[-32:] = _padding_name(node.name().encode())
         self._node_cache_map[node.name()] = node
         return node
 
-    def append_left_node(self, data: bytes) -> Node:
+    def append_left_node(self,
+                         data: bytes,
+                         name: t.Optional[str] = None) -> Node:
         # create new node
-        node = Node(create=True, data_size=len(data))
+        node = Node(name=name, create=True, data_size=len(data))
         # check if it is the first node
         if self.is_empty():
             node.build(_padding_name(b''),
@@ -136,7 +137,7 @@ class SharedLinkedList:
                        _padding_name(b''))
             # the first element name is the same as last
             # assign name to last element
-            self.pointer.buf[-14:] = _padding_name(node.name().encode())
+            self.pointer.buf[-32:] = _padding_name(node.name().encode())
         else:
             first_node = self.get_first_node()
             node.build(_padding_name(b''),
@@ -144,17 +145,20 @@ class SharedLinkedList:
                        first_node.name().encode())
             first_node.set_previous_node_name(node.name().encode())
         # assign name to first element
-        self.pointer.buf[:14] = _padding_name(node.name().encode())
+        self.pointer.buf[:32] = _padding_name(node.name().encode())
         self._node_cache_map[node.name()] = node
         return node
 
-    def insert_node(self, node_name: str, data: bytes) -> Node:
+    def insert_node(self,
+                    node_name: str,
+                    data: bytes,
+                    name: t.Optional[str] = None) -> Node:
         if self.is_empty():
             # insert first element
-            return self.append_node(data)
+            return self.append_node(data, name=name)
         if not node_name:
             # append_left
-            return self.append_left_node(data)
+            return self.append_left_node(data, name=name)
         # find the node by shared memory name
         current_node = self.get_node(node_name)
         if not current_node:
@@ -192,9 +196,9 @@ class SharedLinkedList:
         else:
             # this is removing the first element in linkedlist
             if not _next_node:
-                self.pointer.buf[:14] = _padding_name(b' ')
+                self.pointer.buf[:32] = _padding_name(b' ')
             else:
-                self.pointer.buf[:14] = _padding_name(
+                self.pointer.buf[:32] = _padding_name(
                     _next_node.name().encode())
         if _next_node:
             _next_node.set_previous_node_name(
@@ -202,9 +206,9 @@ class SharedLinkedList:
         else:
             # this is removing the last element in linkedlist
             if not _previous_node:
-                self.pointer.buf[-14:] = _padding_name(b' ')
+                self.pointer.buf[-32:] = _padding_name(b' ')
             else:
-                self.pointer.buf[-14:] = _padding_name(
+                self.pointer.buf[-32:] = _padding_name(
                     _previous_node.name().encode())
         # free removed node name memory
         _node.pointer.unlink()
@@ -243,7 +247,7 @@ class SharedLinkedList:
         return _d
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({','.join([f'{k}={v!r}' for k,v in self.to_dict().items()])})"
+        return f"{self.__class__.__name__}({','.join([f'{k}={v!r}' for k, v in self.to_dict().items()])})"
 
     def shutdown(self):
         nodes = self.get_all_nodes()
@@ -252,13 +256,15 @@ class SharedLinkedList:
         self.pointer.unlink()
 
 
-def contruct_key_value(key_str: str, value: t.Any) -> bytes:
+def construct_key_value(key_str: str, value: t.Any) -> bytes:
     return _padding_name(key_str.encode()) + pickle.dumps(value)
 
-def destruct_key_value(data:bytes) -> (str, t.Any):
-    key = data[:14].decode().strip()
-    v = pickle.loads(data[14:])
+
+def destruct_key_value(data: bytes) -> (str, t.Any):
+    key = data[:32].decode().strip()
+    v = pickle.loads(data[32:])
     return key, v
+
 
 class SharedDictObject:
 
@@ -272,27 +278,27 @@ class SharedDictObject:
         else:
             self.pointer = shared_memory.SharedMemory(name)
             self._hash_map = \
-                SharedLinkedList(self._get_hash_map_mem_name())
-        
+                SharedLinkedList(self._get_hash_map_mem_name().decode())
+
         self._key_value_map = {}
 
     def name(self) -> str:
         return self.pointer.name
 
     def _get_hash_map_mem_name(self) -> bytes:
-        return bytes(self.pointer.buf)[:14]
+        return bytes(self.pointer.buf)[:32]
 
     def _get_key_value_list_mem_name(self) -> bytes:
-        return bytes(self.pointer.buf)[-14:]
+        return bytes(self.pointer.buf)[-32:]
 
     def _create_hash_map_node_name(self, key: t.Hashable) -> str:
-        hash_result = hash(key) % 10**12
+        hash_result = hash(key) % 10 ** 12
         # print('create hash', f'hm{hash_result}')
         return f'hm{hash_result}'
 
-    def _get_hash_linked_list(self,
-                              name: str,
-                              create: bool = False) -> SharedLinkedList:
+    def _get_or_create_hash_pointer(self,
+                                    name: t.Optional[str],
+                                    create: bool = False) -> SharedLinkedList:
         if name in self._key_value_map:
             return self._key_value_map[name]
 
@@ -300,34 +306,42 @@ class SharedDictObject:
         self._key_value_map[sll.name()] = sll
         return sll
 
-    def set(self, key: t.Hashable, value):
+    def _get_hash_linked_list(
+            self,
+            key: t.Hashable,
+            get_only: bool = False
+    ) -> t.Optional[SharedLinkedList]:
         # check if we have the hash already
         hash_node_name = self._create_hash_map_node_name(key)
         hash_node = self._hash_map.get_node(hash_node_name)
         if hash_node:
             # append value to the hash linked list
-            hash_linked_list = self._get_hash_linked_list(hash_node.value())
-            
+            hash_linked_list = self._get_or_create_hash_pointer(hash_node.value())
         else:
+            # hash linked list is not created
+            if get_only:
+                # it get only, we should return None
+                return None
             # create hash linked list
-            hash_linked_list = self._get_hash_linked_list(
+            hash_linked_list = self._get_or_create_hash_pointer(
                 name=None, create=True)
-        # hash node need to be create after that
-        hash_node = self._hash_map.append_node(
-            data=hash_linked_list.name().encode(),
-            name=hash_node_name)
-        # assign value to key_value list
-        data = contruct_key_value(str(key), value)
-        hash_linked_list.append_node(data)
-        return hash_node
+            # hash node need to be create after that
+            # and append to main hash map
+            self._hash_map.append_node(
+                data=hash_linked_list.name().encode(),
+                name=hash_node_name)
+        return hash_linked_list
 
-    def get(self, key: t.Hashable, default=None) -> t.Any:
-        # check if we have the hash already
-        hash_node_name = self._create_hash_map_node_name(key)
-        hash_node = self._hash_map.get_node(hash_node_name)
-        if not hash_node:
-            return default
-        hash_linked_list = self._get_hash_linked_list(hash_node.value())
+    def set(self, key: t.Hashable, value):
+        hash_linked_list = self._get_hash_linked_list(key)
+        # set key, value to hash linked list
+        data = construct_key_value(str(key), value)
+        hash_linked_list.append_node(data)
+
+    def get(self, key: t.Hashable) -> t.Union[t.Any, None]:
+        hash_linked_list = self._get_hash_linked_list(key, get_only=True)
+        if not hash_linked_list:
+            return None
         node = hash_linked_list.get_first_node()
         while node:
             k, v = destruct_key_value(node.data())
@@ -337,6 +351,26 @@ class SharedDictObject:
             if not node:
                 break
         return None
+
+    def remove(self, key: t.Hashable):
+        hash_linked_list = self._get_hash_linked_list(key, get_only=True)
+        if not hash_linked_list:
+            return None
+        node = hash_linked_list.get_first_node()
+        res = None
+        while node:
+            k, v = destruct_key_value(node.data())
+            if k == key:
+                hash_linked_list.remove_node(node.name())
+                res = node
+                break
+            node = hash_linked_list.next_node(node)
+            if not node:
+                break
+        if hash_linked_list.is_empty():
+            hash_linked_list.shutdown()
+            self._hash_map.remove_node(hash_linked_list.name())
+        return res
 
     def pop(self, key: str):
         pass
@@ -351,16 +385,55 @@ class SharedDictObject:
         pass
 
 
+class SimpleSharedDict:
+    def __init__(self, name: str, create: bool = False, prefix: str = 'SD'):
+        self._memory_name_prefix = prefix
+        self._size = _MAX_NAME_LENGTH
+        if create:
+            self.pointer = shared_memory.SharedMemory(
+                name, size=self._size, create=True)
+            self.pointer.buf[:] = _padding_name(b'')
+            self._hash_map = SharedLinkedList(name=None, create=True)
+        else:
+            self.pointer = shared_memory.SharedMemory(name)
+            self._hash_map = \
+                SharedLinkedList(self._get_hash_map_mem_name().decode())
+
+    def name(self) -> str:
+        return self.pointer.name
+
+    def _get_hash_map_mem_name(self) -> bytes:
+        return bytes(self.pointer.buf)
+
+    def _gen_name(self, s: str) -> str:
+        return f"{self._memory_name_prefix}{s}"
+
+    def add(self, key: str, value):
+        data = construct_key_value(key, value)
+        node_name = self._gen_name(key)
+        self._hash_map.append_node(data, name=node_name)
+
+    def get(self, key: str):
+        node_name = self._gen_name(key)
+        node = self._hash_map.get_node(node_name)
+        if not node:
+            return None
+        return destruct_key_value(node.data())
+
+    def remove(self, key: str):
+        node_name = self._gen_name(key)
+        self._hash_map.remove_node(node_name)
+
 
 def test_shared_dict():
-
-    sd = SharedDictObject('test2', create=True)
+    sd = SharedDictObject('test2'+"-"*29, create=True)
     sd.set('k1', 'First Value')
-    print(sd.get('k1'))
+    assert sd.get('k1') == 'First Value'
+    assert sd.get('not_in_dict') is None
 
 
 def test_linked_list():
-    stack = SharedLinkedList('test', create=True)
+    stack = SharedLinkedList('test' + '-'*29, create=True)
     stack.append_node(b'e_1')
     stack.append_node(b'e_2')
     stack.append_node(b'e_3')
@@ -395,6 +468,5 @@ def test_linked_list():
 
 
 if __name__ == '__main__':
-    # test_linked_list()
-    test_shared_dict()
-
+    test_linked_list()
+    # test_shared_dict()
