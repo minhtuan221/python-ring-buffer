@@ -1,7 +1,7 @@
 import pickle
 import time
 import typing as t
-from multiprocessing import shared_memory
+from multiprocessing import shared_memory, Process
 
 _MAX_NAME_LENGTH = 32 # shared_memory._SHM_SAFE_NAME_LENGTH
 
@@ -12,7 +12,7 @@ def _padding_name(n: bytes, max_length=_MAX_NAME_LENGTH):
 
 
 def _unpad_name(n: bytes, max_length=_MAX_NAME_LENGTH):
-    return n.replace(b'\x00', b'').strip()
+    return n.rstrip(b'\x00')
 
 
 def construct_key_value(key_str: str, value: t.Any) -> bytes:
@@ -26,6 +26,17 @@ def destruct_key_value(data: bytes) -> t.Tuple[str, t.Any]:
 
 
 class SharedObject:
+    """The shared Object is a shared memory block, save the name of other memory block
+    1. Read the block in other process => acquire lock => ok
+    2. Write to the block in other process => acquire lock
+    => delete the existing block => create new block => same name or other name ?
+    if keep same name: => why we need object and store it memory name ?, performance ?
+    if different name => how to notify the main thread ?
+    if both => keep all name in an array in shared object memory and let other process read the first one
+        => need limit the length of array, this act like a channel or queue, which is better ?
+        => we need flush old shared memory, each process must keep the pointer of its shared memory alive
+
+    """
 
     def __init__(
             self,
@@ -180,6 +191,11 @@ def test_shared_dict():
     sd.delete()
 
 
+def test_read_obj():
+    sd = SharedObject('test')
+    print(sd.get())
+
+
 def test_long_run_shared_dict():
     sd = SharedObject('test', create=True)
     sd.set('this is a test')
@@ -187,6 +203,10 @@ def test_long_run_shared_dict():
     # set new value to sd
     sd.set("this is new value")
     print('dict value is:', sd.get(), sd.size())
+
+    # open other process to read the value
+
+
     time.sleep(10)
     print('dict value is:', sd.get(), sd.size())
     print(bytes(sd.pointer.buf))

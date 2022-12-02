@@ -1,32 +1,42 @@
 import pickle
+import multiprocessing as mp
 from multiprocessing import shared_memory
 
-from ring_buffer.services.shared_dict_obj import SharedLinkedList
-from ring_buffer.services.shared_obj import _padding_name, construct_key_value, destruct_key_value, _MAX_NAME_LENGTH
+
+_MAX_NAME_LENGTH = 32
 
 
 class SimpleSharedDict:
-    def __init__(self, name: str, create: bool = False, prefix: str = 'SD'):
+    """Shared Simple Dict contain a list of shared memory:
+     - each element in list is a name of a shared memory
+     - read from shared memory
+     - write/change use multiprocess simple queue
+    """
+
+    def __init__(
+            self,
+            name: str,
+            sync_queue: mp.SimpleQueue,
+            size: int,
+            create: bool = False,
+            prefix: str = 'SD'
+    ):
         self._memory_name_prefix = prefix
-        self._size = _MAX_NAME_LENGTH
+        self._size = size
+        self._queue = sync_queue
+        self.is_manager: bool = create
         if create:
+            # this is the main manage object
             self.pointer = shared_memory.SharedMemory(
-                name, size=self._size, create=True)
-            self.pointer.buf[:] = _padding_name(b'')
-            self._hash_map = SharedLinkedList(name=None, create=True)
+                name,
+                size=self._size * _MAX_NAME_LENGTH,
+                create=True
+            )
         else:
             self.pointer = shared_memory.SharedMemory(name)
-            self._hash_map = \
-                SharedLinkedList(self._get_hash_map_mem_name().decode())
 
     def name(self) -> str:
         return self.pointer.name
-
-    def _get_hash_map_mem_name(self) -> bytes:
-        return bytes(self.pointer.buf)
-
-    def _gen_name(self, s: str) -> str:
-        return f"{self._memory_name_prefix}{s}"
 
     def write(self, key: str, value):
         data = pickle.dumps(value)
@@ -67,6 +77,6 @@ def test_simple_share_dict():
     smd.set("3", 'this is number five')
     print(smd.get('1'), smd.get('2'), smd.get('3'))
 
+
 if __name__ == '__main__':
     test_simple_share_dict()
-
