@@ -74,7 +74,20 @@ class SharedMemoryTracker:
         elif _signal == 0:
             self.shutdown()
 
-    def set_change(self, _signal: int, key: str, value):
+    def set_change(
+            self,
+            _signal: int,
+            key: str,
+            value: shared_memory.SharedMemory
+    ):
+        self._signal_to_action(_signal, key, value)
+
+    def notify_change(
+            self,
+            _signal: int,
+            key: str,
+            value: shared_memory.SharedMemory
+    ):
         self._queue.put((_signal, key, value))
 
     def flush(self):
@@ -108,14 +121,14 @@ class SharedMemoryTracker:
 
 
 def test_add_remove_to_tracker(smt: SharedMemoryTracker):
-    smt.set_change(1, 'test1', 100)
+    smt.notify_change(1, 'test1', 100)
     time.sleep(1)
-    smt.set_change(1, 'test2', "i liked it")
-    smt.set_change(1, 'test3', "i don't like it")
+    smt.notify_change(1, 'test2', "i liked it")
+    smt.notify_change(1, 'test3', "i don't like it")
     time.sleep(1)
-    smt.set_change(-1, 'test1', None)
+    smt.notify_change(-1, 'test1', None)
     time.sleep(1)
-    smt.set_change(0, None, None)
+    smt.notify_change(0, None, None)
 
 
 def test_shared_memory_tracker():
@@ -150,5 +163,3 @@ def test_shared_memory_tracker():
 
 if __name__ == '__main__':
     test_shared_memory_tracker()
-
-

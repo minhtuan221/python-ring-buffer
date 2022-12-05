@@ -1,7 +1,7 @@
 from multiprocessing import shared_memory
 
 
-def unpad_name(n: bytes):
+def unpad_name(n: bytes) -> bytes:
     return n.strip(b'\x00')
 
 
@@ -9,8 +9,12 @@ def set_name(buf, n: bytes, start: int = 0):
     buf[start:start + len(n)] = n
 
 
-def get_name(buf, start: int, length: int):
-    return bytes(buf[start:start + length])
+def get_name(buf, start: int = 0, length: int = 32) -> bytes:
+    return bytes(buf[start:start + length]).strip(b'\x00')
+
+
+def get_object(buf) -> bytes:
+    return bytes(buf[:]).strip(b'\x00')
 
 
 def test_unpad_name():

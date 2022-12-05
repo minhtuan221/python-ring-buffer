@@ -2,8 +2,9 @@ import pickle
 import time
 import typing as t
 from multiprocessing import shared_memory, Process
+from ring_buffer.services import padding_name as pad
 
-_MAX_NAME_LENGTH = 32 # shared_memory._SHM_SAFE_NAME_LENGTH
+_MAX_NAME_LENGTH = 32  # shared_memory._SHM_SAFE_NAME_LENGTH
 
 
 def _padding_name(n: bytes, max_length=_MAX_NAME_LENGTH):
@@ -37,6 +38,7 @@ class SharedObject:
         => we need flush old shared memory, each process must keep the pointer of its shared memory alive
 
     """
+    pointer: shared_memory.SharedMemory
 
     def __init__(
             self,
@@ -47,18 +49,20 @@ class SharedObject:
         self._size = size
         if create:
             self.pointer = shared_memory.SharedMemory(
-                name, size=self._size, create=True)
-            self.pointer.buf[:] = _padding_name(b'')
+                name,
+                size=self._size,
+                create=True
+            )
+            pad.set_name(self.pointer.buf, b'')
         else:
-            print('get current share memory', name)
             self.pointer = shared_memory.SharedMemory(name)
         self._value = None
         self._create = create
-        print('shared_memory size is', self.pointer.size)
 
-    def _get_object_shared_memory(self) -> t.Optional[shared_memory.SharedMemory]:
+    def _get_object_shared_memory(
+            self
+    ) -> t.Optional[shared_memory.SharedMemory]:
         v = self._get_pointer_value()
-        print('pointer value', v, self.pointer.size)
         if v:
             return shared_memory.SharedMemory(name=v.decode())
         else:
@@ -71,41 +75,32 @@ class SharedObject:
         return self.pointer.size
 
     def _get_pointer_value(self) -> bytes:
-        return _unpad_name(bytes(self.pointer.buf[:self._size]))
+        return pad.get_name(self.pointer.buf)
 
-    def set(self, d: dict, dict_size: int = 0):
+    def set(self, new_object: t.Any):
         # calculate the size of dict
-        d_in_bytes = pickle.dumps(d)
-        if not dict_size:
-            dict_size = len(d_in_bytes)
+        obj = pickle.dumps(new_object)
         # create new ShareMemory
-        dict_pointer = shared_memory.SharedMemory(name=None, size=dict_size, create=True)
+        obj_shared_memory = shared_memory.SharedMemory(
+            name=None,
+            size=len(obj),
+            create=True
+        )
         # print(dict_pointer, dict_pointer.size, dict_size)
         # assign data to new shared memory
-        dict_pointer.buf[:] = d_in_bytes
+        pad.set_name(obj_shared_memory.buf, obj)
         # assign new dict value to share memory
-        self.pointer.buf[:self._size] = _padding_name(dict_pointer.name.encode())
+        pad.set_name(self.pointer.buf, obj_shared_memory.name.encode())
         # remove old memory
-        last_dict = self._get_object_shared_memory()
-        if last_dict:
-            last_dict.unlink()
-        self._value = dict_pointer
-        return dict_pointer
+        old_obj_shared_memory = self._get_object_shared_memory()
+        return obj_shared_memory, old_obj_shared_memory
 
     def get(self):
         last_dict = self._get_object_shared_memory()
         if not last_dict:
             return None
-        res = pickle.loads(bytes(last_dict.buf))
+        res = pickle.loads(pad.get_object(last_dict.buf))
         return res
-
-    def delete(self):
-        last_dict = self._get_object_shared_memory()
-        if last_dict:
-            last_dict.unlink()
-            print('remove pointer', last_dict.name)
-        print('remove pointer', self.name())
-        self.pointer.unlink()
 
 
 class Node:
@@ -125,7 +120,8 @@ class Node:
         else:
             self.pointer = shared_memory.SharedMemory(name)
 
-    def build(self, previous_node_name: bytes, data: bytes, next_node_name: bytes):
+    def build(self, previous_node_name: bytes, data: bytes,
+              next_node_name: bytes):
         if self.create:
             # build the buffer
             bs = _padding_name(previous_node_name) + data + _padding_name(
@@ -181,8 +177,8 @@ class Node:
 _BYTES_DELIMITER = b'|'
 
 
-def test_shared_dict():
-    sd = SharedObject('test', create=True)
+def test_shared_obj():
+    sd = SharedObject('test1', create=True)
     sd.set('this is a test')
     print(sd.get())
     # set new value to sd
@@ -205,8 +201,6 @@ def test_long_run_shared_dict():
     print('dict value is:', sd.get(), sd.size())
 
     # open other process to read the value
-
-
     time.sleep(10)
     print('dict value is:', sd.get(), sd.size())
     print(bytes(sd.pointer.buf))
@@ -214,5 +208,27 @@ def test_long_run_shared_dict():
     print(bytes(so.pointer.buf))
     sd.delete()
 
+
+def read_shared_mem_loop():
+    smm = shared_memory.SharedMemory('test')
+    while True:
+        print(bytes(smm.buf))
+        time.sleep(1)
+
+
+def test_delete_and_recreate_shared_memory():
+    smm = shared_memory.SharedMemory('test1', create=True, size=16)
+    smm.buf[:5] = b'here1'
+    time.sleep(1)
+    print(bytes(smm.buf).rstrip(b'\x00'))
+    smm.unlink()
+    smm = shared_memory.SharedMemory('test1', create=True, size=16)
+    smm.buf[:5] = b'here2'
+    print(bytes(smm.buf).rstrip(b'\x00'))
+    smm.unlink()
+
+
 if __name__ == '__main__':
-    test_long_run_shared_dict()
+    test_shared_obj()
+    # test_long_run_shared_dict()
+    # test_delete_and_recreate_shared_memory()

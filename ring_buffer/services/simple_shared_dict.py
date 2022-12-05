@@ -3,6 +3,8 @@
 from ring_buffer.services import shared_mem_tracker
 import multiprocessing as mp
 
+from ring_buffer.services.shared_obj import SharedObject
+
 
 class SimpleSharedDict:
     """Simple shared memory Dict A Dict with key is the name of shared
@@ -20,6 +22,10 @@ class SimpleSharedDict:
         self._list_key = list()
         self._sync_queue = sync_queue
         self._tracker = shared_mem_tracker.SharedMemoryTracker(self._sync_queue)
+        self._shared_set = SharedObject(name, create=True)
+        self._tracker.set_change(1, name, self._shared_set.pointer)
+        new_value, old_value = self._shared_set.set(set())
+        self._tracker.set_change(1, new_value.name, new_value)
 
     def set(self, key, value):
         pass
